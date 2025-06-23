@@ -51,9 +51,10 @@ class HttpMetricsCollector(object):
 
         super(HttpMetricsCollector, self).__init__(**kwargs)
 
-        # TODO: currently we maintain just a simple map from all key info -> value. However, some key fields are far
-        # more common to filter on, so we'd want to index by them, e.g. host, client.id, metric name.
         self._http_metrics = defaultdict(list)
+        self._metrics_by_host = defaultdict(lambda: defaultdict(list))
+        self._metrics_by_client_id = defaultdict(lambda: defaultdict(list))
+        self._metrics_by_name = defaultdict(lambda: defaultdict(list))
 
         self._httpd = HTTPServer(('', 0), _MetricsReceiver)
         self._httpd.parent = self
@@ -114,8 +115,19 @@ class HttpMetricsCollector(object):
         """
         Get any collected metrics that match the specified parameters, yielding each as a tuple of
         (key, [<timestamp, value>, ...]) values.
+        
+        Uses indexed storage for efficient filtering when possible.
         """
-        for k, values in self._http_metrics.items():
+        if host is not None and client_id is None and name is None:
+            candidate_metrics = self._metrics_by_host.get(host, {})
+        elif client_id is not None and host is None and name is None:
+            candidate_metrics = self._metrics_by_client_id.get(client_id, {})
+        elif name is not None and host is None and client_id is None:
+            candidate_metrics = self._metrics_by_name.get(name, {})
+        else:
+            candidate_metrics = self._http_metrics
+            
+        for k, values in candidate_metrics.items():
             if ((host is None or host == k.host) and
                     (client_id is None or client_id == k.client_id) and
                     (name is None or name == k.name) and
@@ -162,6 +174,10 @@ class _MetricsReceiver(BaseHTTPRequestHandler):
             metric_value = MetricValue(time=ts, value=value)
 
             self.server.metrics[key].append(metric_value)
+            
+            self.server.parent._metrics_by_host[host][key].append(metric_value)
+            self.server.parent._metrics_by_client_id[client_id][key].append(metric_value)
+            self.server.parent._metrics_by_name[name][key].append(metric_value)
 
 
 class _ReverseForwarder(object):
