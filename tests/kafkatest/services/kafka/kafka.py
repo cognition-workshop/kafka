@@ -495,13 +495,32 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
 
     @property
     def interbroker_security_protocol(self):
-        # TODO: disentangle interbroker and intercontroller protocol information
-        return self.interbroker_listener.security_protocol if self.quorum_info.using_zk or self.quorum_info.has_brokers else self.intercontroller_security_protocol
+        """
+        Returns the security protocol used for broker-to-broker communication.
+        Only relevant when brokers are present (ZK or KRaft with brokers).
+        """
+        if self.quorum_info.using_zk or self.quorum_info.has_brokers:
+            return self.interbroker_listener.security_protocol
+        else:
+            raise ValueError("interbroker_security_protocol is not applicable when no brokers are present")
+    
+    @property
+    def effective_intercontroller_security_protocol(self):
+        """
+        Returns the security protocol used for controller-to-controller communication.
+        Only relevant when controllers are present (KRaft mode).
+        """
+        if self.quorum_info.has_controllers:
+            return self.intercontroller_security_protocol
+        else:
+            raise ValueError("intercontroller_security_protocol is not applicable when no controllers are present")
 
     # this is required for backwards compatibility - there are a lot of tests that set this property explicitly
     # meaning 'use one of the existing listeners that match given security protocol, do not use custom listener'
     @interbroker_security_protocol.setter
     def interbroker_security_protocol(self, security_protocol):
+        if not (self.quorum_info.using_zk or self.quorum_info.has_brokers):
+            raise ValueError("Cannot set interbroker_security_protocol when no brokers are present")
         self.setup_interbroker_listener(security_protocol, use_separate_listener=False)
 
     def setup_interbroker_listener(self, security_protocol, use_separate_listener=False):
