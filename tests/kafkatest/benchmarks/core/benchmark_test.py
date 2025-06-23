@@ -132,7 +132,8 @@ class Benchmark(Test):
 
         summary = ["Throughput over long run, data > memory:"]
         data = {}
-        # FIXME we should be generating a graph too
+        self._generate_throughput_graph(self.producer.stats[0])
+        
         # Try to break it into 5 blocks, but fall back to a smaller number if
         # there aren't even 5 elements
         block_size = max(len(self.producer.stats[0]) // 5, 1)
@@ -273,6 +274,49 @@ class Benchmark(Test):
         self.consumer.group = "test-consumer-group"
         self.consumer.run()
         return compute_aggregate_throughput(self.consumer)
+
+    def _generate_throughput_graph(self, stats):
+        """
+        Generate a throughput visualization graph for long-term producer performance.
+        Creates a simple ASCII graph showing throughput over time blocks.
+        """
+        if not stats:
+            self.logger.info("No stats available for graph generation")
+            return
+            
+        block_size = max(len(stats) // 5, 1)
+        nblocks = len(stats) // block_size
+        
+        throughput_data = []
+        for i in range(nblocks):
+            subset = stats[i*block_size:min((i+1)*block_size, len(stats))]
+            if subset:
+                avg_throughput = sum([stat['records_per_sec'] for stat in subset]) / float(len(subset))
+                throughput_data.append(avg_throughput)
+        
+        if not throughput_data:
+            return
+            
+        max_throughput = max(throughput_data)
+        min_throughput = min(throughput_data)
+        graph_height = 10
+        
+        self.logger.info("\nThroughput Graph (records/sec over time blocks):")
+        self.logger.info("=" * 60)
+        
+        for row in range(graph_height, 0, -1):
+            line = ""
+            threshold = min_throughput + (max_throughput - min_throughput) * (row / graph_height)
+            for throughput in throughput_data:
+                if throughput >= threshold:
+                    line += "██"
+                else:
+                    line += "  "
+            self.logger.info(f"{threshold:8.0f} |{line}")
+        
+        self.logger.info("         " + "".join([f"{i:2d}" for i in range(len(throughput_data))]))
+        self.logger.info(f"Min: {min_throughput:.0f}, Max: {max_throughput:.0f}, Avg: {sum(throughput_data)/len(throughput_data):.0f}")
+        self.logger.info("=" * 60)
 
     def validate_versions(self, client_version, broker_version):
         assert client_version <= broker_version, "Client version %s should be <= than broker version %s" (client_version, broker_version)
